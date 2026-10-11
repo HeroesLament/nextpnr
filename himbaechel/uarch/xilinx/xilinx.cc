@@ -632,9 +632,23 @@ void XilinxImpl::apply_loc_constraints()
     }
 
     for (auto &w : wanted) {
-        bool bound_to_wrong_bel = w.first->bel != BelId() && w.first->bel != w.second;
-        if (bound_to_wrong_bel)
+        const bool bound_to_wrong_bel = w.first->bel != BelId() && w.first->bel != w.second;
+        if (bound_to_wrong_bel) {
+            // pack_gt binds a transceiver to the site its pads are hardwired
+            // to. A LOC that names a different site used to win silently, and
+            // the bitstream then configured that other channel while the pads
+            // stayed on the first. The pads cannot be rerouted, so this is an
+            // error rather than a move.
+            const bool is_gt_channel = w.first->type.in(id_GTPE2_CHANNEL, id_GTXE2_CHANNEL);
+            const bool is_gt_common = w.first->type.in(id_GTPE2_COMMON, id_GTXE2_COMMON);
+            const bool gt_placed_from_its_pads = is_gt_channel || is_gt_common;
+            if (gt_placed_from_its_pads)
+                log_error("cell '%s' of type '%s' is constrained to site '%s', but its pads place it at '%s'\n",
+                          ctx->nameOf(w.first), w.first->type.c_str(ctx),
+                          get_site_name(get_bel_site(w.second)).c_str(ctx),
+                          get_site_name(get_bel_site(w.first->bel)).c_str(ctx));
             ctx->unbindBel(w.first->bel);
+        }
     }
     // A wanted bel can still be occupied by a cell nobody constrained, because
     // packing put it there before any of this ran.  A LOC is a requirement,
