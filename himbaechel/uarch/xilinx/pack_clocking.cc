@@ -849,7 +849,57 @@ void XilinxPacker::generate_constraints()
                 if (ci->type == id_MMCME2_ADV_MMCME2_ADV)
                     set_constraint(ci, ctx->id("CLKFBOUTB"), simple_clk_contraint(vco_period));
             }
+            // IBUFDS_GTE2 is the reference-clock buffer of a GTP/GTX pad.
+            // A create_clock on that pad constrains the net on I (or IB);
+            // the fabric clock is the buffer's O, or ODIV2 at half the rate.
+            // The port name is taken from the cell so this does not intern a
+            // new id on a design that has no such buffer.
+            const bool is_ibufds_gte2 = ci->type == id_IBUFDS_GTE2;
+            if (is_ibufds_gte2) {
+                copy_constraint(ci, id_I, id_O, 1.0);
+                copy_constraint(ci, id_IB, id_O, 1.0);
+                IdString odiv2;
+                bool have_odiv2 = false;
+                for (auto const &p : ci->ports) {
+                    const bool port_is_odiv2 = p.first.str(ctx) == "ODIV2";
+                    if (port_is_odiv2) {
+                        odiv2 = p.first;
+                        have_odiv2 = true;
+                    }
+                }
+                if (have_odiv2) {
+                    // ratio is output/input frequency: 0.5 doubles the period.
+                    copy_constraint(ci, id_I, odiv2, 0.5);
+                    copy_constraint(ci, id_IB, odiv2, 0.5);
+                }
+            }
         }
+    }
+
+    // A clock with no constraint is timed at the default target and the
+    // report says PASS at that frequency. Say so, once per net, while the
+    // flip-flops still carry their clock on port C (pack_ffs runs later).
+    const float target_mhz = ctx->setting<float>("target_freq") / 1e6f;
+    pool<IdString> warned;
+    for (auto &cell : ctx->cells) {
+        CellInfo *ci = cell.second.get();
+        const bool is_fabric_ff =
+                ci->type.in(id_FDRE, id_FDRE_1, id_FDCE, id_FDCE_1, id_FDPE, id_FDPE_1, id_FDSE, id_FDSE_1);
+        if (!is_fabric_ff)
+            continue;
+        NetInfo *clk = ci->getPort(id_C);
+        const bool clk_absent = clk == nullptr;
+        if (clk_absent)
+            continue;
+        const bool already_constrained = clk->clkconstr != nullptr;
+        if (already_constrained)
+            continue;
+        const bool already_warned = warned.count(clk->name) != 0;
+        if (already_warned)
+            continue;
+        warned.insert(clk->name);
+        log_warning("Clock net '%s' has no timing constraint and will be timed at the default %.2f MHz.\n",
+                    clk->name.c_str(ctx), target_mhz);
     }
 }
 NEXTPNR_NAMESPACE_END
