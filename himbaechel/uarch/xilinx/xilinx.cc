@@ -119,7 +119,14 @@ void XilinxImpl::init_database(Arch *arch)
     // xc7z007s is a die, while xc7z030sbg485-1's s belongs to the package
     // (sbg485).  Without them xc7z007sclg400-1 parses as die "xc7z007" with
     // package "sclg400" -- neither the die's chipdb nor a real package.
-    std::regex devicere = std::regex("(xc7z007s|xc7z012s|xc7z014s|xc7[azks]\\d+t?|xc7vx\\d+t?)([a-z0-9]*)(?:-([0-9]L?))?");
+    //
+    // The speed grade is the set that prjxray-db part directories actually
+    // use (1, 2, 3, 2L, 1IL, 1Q) and nothing else.  1IL and 1Q are
+    // Spartan-7 grades; the previous pattern ([0-9]L?) rejected them.
+    // The grade is not a timing corner: set_speed_grade below is DEFAULT.
+    std::regex devicere = std::regex(
+            "(xc7z007s|xc7z012s|xc7z014s|xc7[azks]\\d+t?|xc7vx\\d+t?)"
+            "([a-z0-9]*)(?:-(1IL|1Q|2L|[123]))?");
     if (!std::regex_match(args.device, match, devicere)) {
         log_error("Invalid device %s\n", args.device.c_str());
     }
@@ -130,6 +137,14 @@ void XilinxImpl::init_database(Arch *arch)
     // chipdb of its own (see prjxray-db/zynq7/mapping/devices.yaml).
     if (die == "xc7z007s")
         die = "xc7z010";
+    // prjxray-db/zynq7/mapping/devices.yaml: xc7z035's fabric is xc7z045.
+    const bool xc7z035_uses_xc7z045 = die == "xc7z035";
+    if (xc7z035_uses_xc7z045)
+        die = "xc7z045";
+    // prjxray-db/spartan7/mapping/devices.yaml: xc7s75's fabric is xc7s100.
+    const bool xc7s75_uses_xc7s100 = die == "xc7s75";
+    if (xc7s75_uses_xc7s100)
+        die = "xc7s100";
     arch->load_chipdb(stringf("xilinx/chipdb-%s.bin", die.c_str()));
     std::string package = match[2].str();
     // A bare die name carries no package, and set_package("") is not the
