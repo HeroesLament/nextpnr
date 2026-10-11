@@ -3151,7 +3151,9 @@ struct FasmBackend
         push(tile_name);
         Loc siteLoc = uarch->rel_site_loc(uarch->get_bel_site(ci->bel));
         push("IBUFDS_GTE2_Y" + std::to_string(siteLoc.y));
-        write_bit("IN_USE");
+        // IN_USE stays clear in Vivado for a placed buffer (Artix-7 GTP and
+        // Zynq-7000 GTX, either site, any CEB, pads connected or open).
+        // CLKCM_CFG and CLKRCV_TRST are the bits that follow the site.
         // Xilinx sources write these as the STRINGS "TRUE"/"FALSE", which is
         // what the LiteEth PCS instantiates them with; bool_or_default wants a
         // number and aborts the whole fasm write with "Expecting numeric value
