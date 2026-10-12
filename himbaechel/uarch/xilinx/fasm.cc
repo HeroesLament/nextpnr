@@ -2977,11 +2977,13 @@ struct FasmBackend
         // The most significant two bits seem to be zero, so let us just truncate them
         const size_t mask_size = 48;
         std::vector<bool> mask_vector(mask_size, true);
-        bool mask_found = boolvec_populate(ci->params, ctx->id("MASK"), mask_vector);
-        if (mask_found) {
-            mask_vector.resize(46);
-            write_vector("MASK[45:0]", mask_vector);
-        }
+        // The primitive's default MASK is all ones, and Vivado writes it out
+        // even when the netlist does not mention it -- yosys never does.
+        // Leaving it unwritten is a zero mask, which is a different pattern
+        // detector.
+        boolvec_populate(ci->params, ctx->id("MASK"), mask_vector);
+        mask_vector.resize(46);
+        write_vector("MASK[45:0]", mask_vector);
 
         auto sel_mask = str_or_default(ci->params, ctx->id("SEL_MASK"), "MASK");
         if (sel_mask == "C")
@@ -2991,7 +2993,13 @@ struct FasmBackend
         if (sel_mask == "ROUNDING_MODE2")
             write_bit("SEL_MASK_ROUNDING_MODE2");
 
-        write_bit("ZADREG[0]", !bool_or_default(ci->params, ctx->id("ADREG"), true));
+        // ZADREG means ADREG is off. Vivado also sets it when USE_DPORT is
+        // false, whatever ADREG says: the pre-adder is unused, so that
+        // pipeline register stays off. The fuzzer only tags the bit while
+        // USE_DPORT is true (fuzzers/100-dsp-mskpat/generate.py).
+        const bool adreg_on = bool_or_default(ci->params, ctx->id("ADREG"), true);
+        const bool zadreg_off = !use_dport || !adreg_on;
+        write_bit("ZADREG[0]", zadreg_off);
         write_bit("ZALUMODEREG[0]", !bool_or_default(ci->params, ctx->id("ALUMODEREG")));
         // prjxray's AREG_2_ACASCREG_1 is the conjunction AREG == 2 && ACASCREG == 1
         // (fuzzers/100-dsp-mskpat/generate.py), not ACASCREG: its Z bit is set
@@ -3004,7 +3012,10 @@ struct FasmBackend
         write_bit("ZCARRYINREG[0]", !bool_or_default(ci->params, ctx->id("CARRYINREG")));
         write_bit("ZCARRYINSELREG[0]", !bool_or_default(ci->params, ctx->id("CARRYINSELREG")));
         write_bit("ZCREG[0]", !bool_or_default(ci->params, ctx->id("CREG"), true));
-        write_bit("ZDREG[0]", !bool_or_default(ci->params, ctx->id("DREG"), true));
+        // Same rule as ZADREG, for the D input register.
+        const bool dreg_on = bool_or_default(ci->params, ctx->id("DREG"), true);
+        const bool zdreg_off = !use_dport || !dreg_on;
+        write_bit("ZDREG[0]", zdreg_off);
         write_bit("ZINMODEREG[0]", !bool_or_default(ci->params, ctx->id("INMODEREG")));
         write_bus_zinv("ALUMODE", 4);
         write_bus_zinv("INMODE", 5);
