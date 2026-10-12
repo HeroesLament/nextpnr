@@ -22,8 +22,10 @@
 #include <boost/range/adaptor/reversed.hpp>
 
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <regex>
+#include <system_error>
 
 #include "extra_data.h"
 #include "himbaechel_api.h"
@@ -5229,10 +5231,46 @@ struct FasmBackend
 
 void XilinxImpl::write_fasm(const std::string &filename)
 {
-    auto out = open_ofstream_and_log_error(filename, "FASM file");
+    // A log_error during the walk throws, and anything already flushed would
+    // otherwise stay behind under the name the user asked for. A later
+    // assembler treats that partial text as a complete design and emits a
+    // normal-sized bitstream. Write a temporary file in the same directory
+    // and rename it into place only after the walk finishes, so a failure
+    // leaves the previous file untouched and no partial file under that name.
+    // std::filesystem::rename replaces an existing destination on Linux and
+    // on Windows, which is what a rebuild finds already in place.
+    const std::string tmp = filename + ".nextpnr-tmp";
+    struct PendingFasm
+    {
+        std::string path;
+        bool commit = false;
+        ~PendingFasm()
+        {
+            const bool discard = !commit;
+            if (discard) {
+                std::error_code remove_ec;
+                std::filesystem::remove(path, remove_ec);
+            }
+        }
+    } pending{tmp};
 
-    FasmBackend be(this->ctx, this, out);
-    be.write_fasm();
+    {
+        auto out = open_ofstream_and_log_error(tmp, "FASM file");
+        FasmBackend be(this->ctx, this, out);
+        be.write_fasm();
+        out.flush();
+        const bool write_failed = !out.good();
+        if (write_failed)
+            log_error("Failed to write FASM file '%s'.\n", tmp.c_str());
+        out.close();
+    }
+
+    std::error_code rename_ec;
+    std::filesystem::rename(tmp, filename, rename_ec);
+    const bool rename_failed = static_cast<bool>(rename_ec);
+    if (rename_failed)
+        log_error("Failed to rename FASM file '%s' to '%s'.\n", tmp.c_str(), filename.c_str());
+    pending.commit = true;
 }
 
 // Placement dump: for every cell that ended up on a bel, the physical
