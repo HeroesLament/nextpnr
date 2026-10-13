@@ -3000,8 +3000,9 @@ struct FasmBackend
         if (sel_mask == "ROUNDING_MODE2")
             write_bit("SEL_MASK_ROUNDING_MODE2");
 
-        auto sel_pattern = str_or_default(ci->params, ctx->id("SEL_PATTERN"), "PATTERN");
-        if (sel_pattern == "C")
+        const std::string sel_pattern = str_or_default(ci->params, ctx->id("SEL_PATTERN"), "PATTERN");
+        const bool sel_pattern_is_c = sel_pattern == "C";
+        if (sel_pattern_is_c)
             write_bit("SEL_PATTERN_C");
 
         // ZADREG means ADREG is off. Vivado also sets it when USE_DPORT is
