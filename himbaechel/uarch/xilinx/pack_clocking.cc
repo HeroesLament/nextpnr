@@ -310,6 +310,21 @@ void XC7Packer::pack_gbs()
 
 void XC7Packer::preplace_clocking()
 {
+    // The XDC's LOCs on these cells first.  Each site picked below follows
+    // from where the driver sits and from which sites are still free; a LOC
+    // applied after that (prePlace) moves the driver, or evicts a cell from
+    // the site it names, and leaves the loads chosen here on sites the clock
+    // cannot reach through the clock network.  Only when there is such a LOC:
+    // resolving one names every site of the device, and those names are
+    // IdStrings the rest of the flow would otherwise create later.
+    const pool<IdString> clocking_types{
+            id_BUFGCTRL,    id_BUFG_BUFG,           id_BUFHCE_BUFHCE,        id_MMCM_MMCM_TOP,
+            id_PLL_PLL_TOP, id_PLLE2_ADV_PLLE2_ADV, id_MMCME2_ADV_MMCME2_ADV};
+    const bool a_clocking_cell_has_a_loc = std::any_of(ctx->cells.begin(), ctx->cells.end(), [&](const auto &cell) {
+        return clocking_types.count(cell.second->type) && cell.second->attrs.count(id_LOC);
+    });
+    if (a_clocking_cell_has_a_loc)
+        uarch->apply_loc_constraints(clocking_types);
     bool did_something = false;
     do {
         did_something = false;
