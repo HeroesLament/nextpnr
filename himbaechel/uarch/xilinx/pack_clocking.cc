@@ -54,9 +54,16 @@ BelId XilinxPacker::find_bel_with_short_route(WireId source, IdString beltype, I
 
             IdString intent = ctx->getWireType(dst);
             // log_info("%s %s\n", ctx->nameOfWire(dst), ctx->nameOf(intent));
-            if (intent.in(id_NODE_DOUBLE, id_NODE_HLONG, id_NODE_HQUAD, id_NODE_VLONG, id_NODE_VQUAD, id_NODE_SINGLE,
-                          id_NODE_CLE_OUTPUT, id_NODE_OPTDELAY, id_BENTQUAD, id_DOUBLE, id_HLONG, id_HQUAD, id_OPTDELAY,
-                          id_SINGLE, id_VLONG, id_VLONG12, id_VQUAD))
+            // The wire types route_clocks() refuses.  Without PINBOUNCE a clock
+            // with no dedicated way to a free bel walks the FAN bounce chain of
+            // the fabric down to a CLK_BUFG_IMUX, and the bel found that way is
+            // locked "based on dedicated routing" on a site its clock cannot
+            // reach through the clock network.
+            const bool wire_is_not_clock_routing =
+                    intent.in(id_NODE_DOUBLE, id_NODE_HLONG, id_NODE_HQUAD, id_NODE_VLONG, id_NODE_VQUAD,
+                              id_NODE_SINGLE, id_NODE_CLE_OUTPUT, id_NODE_OPTDELAY, id_BENTQUAD, id_DOUBLE, id_HLONG,
+                              id_HQUAD, id_OPTDELAY, id_SINGLE, id_VLONG, id_VLONG12, id_VQUAD, id_PINBOUNCE);
+            if (wire_is_not_clock_routing)
                 continue;
 
             if (visited.count(dst))
