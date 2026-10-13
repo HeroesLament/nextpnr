@@ -399,9 +399,13 @@ struct FasmBackend
                     auto dot = loc.find('.');
                     std::string tile_name = uarch->tile_name(pip.tile);
                     std::string site_y = dot == std::string::npos ? "" : loc.substr(dot + 1);
-                    if (boost::contains(tile_name, "_SING_") && pip.tile < uarch->hclk_for_ioi(pip.tile))
-                        boost::replace_all(site_y, "Y0", "Y1"); // write_iol_config's naming for a top SING tile
-                    if (!ologic_t1_low.count(tile_name + "/" + site_y))
+                    // write_iol_config names the top half of a SING tile Y1.
+                    const bool top_sing_tile =
+                            boost::contains(tile_name, "_SING_") && pip.tile < uarch->hclk_for_ioi(pip.tile);
+                    if (top_sing_tile)
+                        boost::replace_all(site_y, "Y0", "Y1");
+                    const bool site_has_t1_tied_low = ologic_t1_low.count(tile_name + "/" + site_y) != 0;
+                    if (!site_has_t1_tied_low)
                         out << loc << "." << "ZINV_T1" << std::endl;
                 }
             }
@@ -462,9 +466,12 @@ struct FasmBackend
                     if (site_has_tristate_register)
                         continue;
                 }
-                if (boost::ends_with(c, ".ZINV_T1")) {
+                const bool is_zinv_t1 = boost::ends_with(c, ".ZINV_T1");
+                if (is_zinv_t1) {
                     auto dot = c.find('.');
-                    if (dot != std::string::npos && ologic_t1_low.count(tile_name + "/" + c.substr(0, dot)))
+                    const bool site_has_t1_tied_low =
+                            dot != std::string::npos && ologic_t1_low.count(tile_name + "/" + c.substr(0, dot));
+                    if (site_has_t1_tied_low)
                         continue;
                 }
                 // Phantom-BUFGCTRL guard (per-slot variant): suppress
@@ -1700,13 +1707,17 @@ struct FasmBackend
             ologic_registered.insert(tile + "/" + site_y);
         if (ci->type.in(id_OLOGICE2_TFF, id_OLOGICE3_TFF))
             ologic_t_registered.insert(tile + "/" + site_y);
-        if (ci->type == id_OSERDESE2_OSERDESE2) {
+        const bool is_oserdese2 = ci->type == id_OSERDESE2_OSERDESE2;
+        if (is_oserdese2) {
             // pack_constants turns a GND tie on an invertible pin into the VCC net plus
             // IS_T1_INVERTED, so "tied low" is either form.
             NetInfo *t1 = ci->getPort(ctx->id("T1"));
-            bool inv = bool_or_default(ci->params, ctx->id("IS_T1_INVERTED"), false);
-            if (t1 != nullptr && (t1->name == ctx->id("$PACKER_GND_NET") ||
-                                  (t1->name == ctx->id("$PACKER_VCC_NET") && inv)))
+            const bool inverted = bool_or_default(ci->params, ctx->id("IS_T1_INVERTED"), false);
+            const bool tied_to_gnd = t1 != nullptr && t1->name == ctx->id("$PACKER_GND_NET");
+            const bool tied_to_inverted_vcc =
+                    t1 != nullptr && t1->name == ctx->id("$PACKER_VCC_NET") && inverted;
+            const bool t1_tied_low = tied_to_gnd || tied_to_inverted_vcc;
+            if (t1_tied_low)
                 ologic_t1_low.insert(tile + "/" + site_y);
         }
 
